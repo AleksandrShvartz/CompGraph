@@ -9,6 +9,13 @@
 #define IDS_APP_TITLE	    103
 #define IDC_LAB_1			109
 
+#define SAFE_RELEASE(A) if ((A) != NULL) { (A)->Release(); (A) = NULL; }
+
+#ifdef DEBUG	
+#define D3D11_CREATE_DEVICE_FLAG (D3D11_CREATE_DEVICE_DEBUG | D3D11_CREATE_DEVICE_BGRA_SUPPORT)
+#else
+#define D3D11_CREATE_DEVICE_FLAG D3D11_CREATE_DEVICE_BGRA_SUPPORT
+#endif 
 // Globals
 // For initialization and utility
 ID3D11Device* g_Device;
@@ -49,7 +56,20 @@ void Redraw() {
 	// Rendering Code
 }
 
+HRESULT SetupBackBuffer()
+{
+	ID3D11Texture2D* pBackBuffer = NULL;
+	HRESULT result = g_Swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
+	assert(SUCCEEDED(result));
+	if (SUCCEEDED(result))
+	{
+		result = g_Device->CreateRenderTargetView(pBackBuffer, NULL, &g_RenderTargetView);
+		assert(SUCCEEDED(result));
 
+		SAFE_RELEASE(pBackBuffer);
+	}
+	return result;
+}
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	_In_opt_ HINSTANCE hPrevInstance,
@@ -141,12 +161,12 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 	wcex.cbClsExtra = 0;
 	wcex.cbWndExtra = 0;
 	wcex.hInstance = hInstance;
-	wcex.hIcon = LoadIcon(hInstance, NULL);
+	wcex.hIcon = NULL;
 	wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
 	wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
 	wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_LAB_1);
 	wcex.lpszClassName = szWindowClass;
-	wcex.hIconSm = LoadIcon(wcex.hInstance, NULL);
+	wcex.hIconSm = NULL;
 
 	return RegisterClassExW(&wcex);
 }
@@ -208,22 +228,14 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 	HRESULT result;
 
-	result = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, NULL, D3D11_CREATE_DEVICE_DEBUG, &DX11, 1, D3D11_SDK_VERSION, &swap, &g_Swapchain, &g_Device, 0, &g_DeviceContext);
+	result = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, NULL, D3D11_CREATE_DEVICE_FLAG, &DX11, 1, D3D11_SDK_VERSION, &swap, &g_Swapchain, &g_Device, 0, &g_DeviceContext);
 	assert(!FAILED(result));
 
-	ID3D11Resource* backbuffer;
-	result = g_Swapchain->GetBuffer(0, __uuidof(backbuffer), (void**)&backbuffer);
-	assert(!FAILED(result));
-	result = g_Device->CreateRenderTargetView(backbuffer, NULL, &g_RenderTargetView);
-	assert(!FAILED(result));
-
-	// Release the resource to decrement the counter by one
-	// This is necessary to keep the thing from leaking memory
-	backbuffer->Release();
+	assert(!FAILED(SetupBackBuffer()));
 
 	// Setup viewport
-	g_viewport.Width = swap.BufferDesc.Width;
-	g_viewport.Height = swap.BufferDesc.Height;
+	g_viewport.Width =  (FLOAT) swap.BufferDesc.Width;
+	g_viewport.Height = (FLOAT) swap.BufferDesc.Height;
 	g_viewport.TopLeftY = g_viewport.TopLeftX = 0;
 	g_viewport.MinDepth = 0;
 	g_viewport.MaxDepth = 1;
@@ -248,6 +260,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		PostQuitMessage(0);
 		break;
 	case WM_SIZE:
+		if (g_Swapchain && g_Device && g_DeviceContext && g_RenderTargetView) {
+			RECT rc;
+			HRESULT res;
+			GetClientRect(hWnd, &rc);
+			SAFE_RELEASE(g_RenderTargetView)
+			res = g_Swapchain->ResizeBuffers(0, rc.right - rc.left, rc.bottom - rc.top, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
+			assert(!FAILED(res));		
+			assert(!FAILED(SetupBackBuffer()));
+		}
 	case WM_PAINT:
 		Redraw();
 		return DefWindowProc(hWnd, message, wParam, lParam);
