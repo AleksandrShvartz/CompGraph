@@ -11,7 +11,7 @@
 
 #define SAFE_RELEASE(A) if ((A) != NULL) { (A)->Release(); (A) = NULL; }
 
-#ifdef DEBUG	
+#ifndef NDEBUG
 #define D3D11_CREATE_DEVICE_FLAG (D3D11_CREATE_DEVICE_DEBUG | D3D11_CREATE_DEVICE_BGRA_SUPPORT)
 #else
 #define D3D11_CREATE_DEVICE_FLAG D3D11_CREATE_DEVICE_BGRA_SUPPORT
@@ -90,30 +90,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	{
 		return FALSE;
 	}
-	HRESULT result;
-	IDXGIFactory* pFactory = nullptr;
-	result = CreateDXGIFactory(__uuidof(IDXGIFactory), (void**)&pFactory);
-	// Select hardware adapter 
-	IDXGIAdapter* pSelectedAdapter = NULL;
-	if (!FAILED(result))
-	{
-		IDXGIAdapter* pAdapter = NULL;
-		UINT adapterIdx = 0;
-
-		while (SUCCEEDED(pFactory->EnumAdapters(adapterIdx, &pAdapter)))
-		{
-			DXGI_ADAPTER_DESC desc;
-			pAdapter->GetDesc(&desc);
-			if (wcscmp(desc.Description, L"Microsoft Basic Render Driver") != 0) {
-				pSelectedAdapter = pAdapter;
-				break;
-			}
-			pAdapter->Release();
-			adapterIdx++;
-
-		}
-	}
-	assert(pSelectedAdapter != NULL);
+	
 
 	HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_LAB_1));
 
@@ -135,6 +112,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
 		// Break if user presses escape key
 		if (GetAsyncKeyState(VK_ESCAPE)) break;
+		//Redraw();
 
 	}
 	g_Device->Release();
@@ -206,6 +184,31 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	ShowWindow(hWnd, nCmdShow);
 	UpdateWindow(hWnd);
 
+	HRESULT result;
+	IDXGIFactory* pFactory = nullptr;
+	result = CreateDXGIFactory(__uuidof(IDXGIFactory), (void**)&pFactory);
+	// Select hardware adapter 
+	IDXGIAdapter* pSelectedAdapter = NULL;
+	if (!FAILED(result))
+	{
+		IDXGIAdapter* pAdapter = NULL;
+		UINT adapterIdx = 0;
+
+		while (SUCCEEDED(pFactory->EnumAdapters(adapterIdx, &pAdapter)))
+		{
+			DXGI_ADAPTER_DESC desc;
+			pAdapter->GetDesc(&desc);
+			if (wcscmp(desc.Description, L"Microsoft Basic Render Driver") != 0) {
+				pSelectedAdapter = pAdapter;
+				break;
+			}
+			pAdapter->Release();
+			adapterIdx++;
+
+		}
+	}
+	assert(pSelectedAdapter != NULL);
+
 	// D3d11 code here
 	RECT rect;
 	GetClientRect(hWnd, &rect);
@@ -226,11 +229,42 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 	g_aspectRatio = swap.BufferDesc.Width / (float)swap.BufferDesc.Height;
 
-	HRESULT result;
+	// Create DirectX 11 device
+	D3D_FEATURE_LEVEL level;
+	D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_0 };
+	if (SUCCEEDED(result))
+	{
+		result = D3D11CreateDevice(pSelectedAdapter, D3D_DRIVER_TYPE_UNKNOWN, NULL,
+			D3D11_CREATE_DEVICE_FLAG, levels, 1, D3D11_SDK_VERSION, &g_Device, &level, &g_DeviceContext);
+		assert(level == D3D_FEATURE_LEVEL_11_0);
+		assert(SUCCEEDED(result));
+	}
 
-	result = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, NULL, D3D11_CREATE_DEVICE_FLAG, &DX11, 1, D3D11_SDK_VERSION, &swap, &g_Swapchain, &g_Device, 0, &g_DeviceContext);
-	assert(!FAILED(result));
+	// Create swapchain
+	if (SUCCEEDED(result))
+	{
+		RECT rc;
+		GetClientRect(hWnd, &rc);
+		DXGI_SWAP_CHAIN_DESC swapChainDesc = { 0 };
+		swapChainDesc.BufferCount = 2;
+		swapChainDesc.BufferDesc.Width = rc.right - rc.left;;
+		swapChainDesc.BufferDesc.Height = rc.bottom - rc.top;
+		swapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		swapChainDesc.BufferDesc.RefreshRate.Numerator = 0;
+		swapChainDesc.BufferDesc.RefreshRate.Denominator = 1;
+		swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+		swapChainDesc.OutputWindow = hWnd;
+		swapChainDesc.SampleDesc.Count = 1;
+		swapChainDesc.SampleDesc.Quality = 0;
+		swapChainDesc.Windowed = true;
+		swapChainDesc.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
+		swapChainDesc.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+		swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+		swapChainDesc.Flags = 0;
 
+		result = pFactory->CreateSwapChain(g_Device, &swapChainDesc, &g_Swapchain);
+		assert(SUCCEEDED(result));
+	}
 	assert(!FAILED(SetupBackBuffer()));
 
 	// Setup viewport
@@ -260,7 +294,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		PostQuitMessage(0);
 		break;
 	case WM_SIZE:
-		if (g_Swapchain && g_Device && g_DeviceContext && g_RenderTargetView) {
+		if (g_Swapchain ) {
 			RECT rc;
 			HRESULT res;
 			GetClientRect(hWnd, &rc);
@@ -271,7 +305,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		}
 	case WM_PAINT:
 		Redraw();
-		return DefWindowProc(hWnd, message, wParam, lParam);
+		break;
 	default:
 		return DefWindowProc(hWnd, message, wParam, lParam);
 	}
